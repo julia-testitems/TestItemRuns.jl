@@ -39,6 +39,7 @@ One execution of a set of test items under one or more profiles, created by
 - `started_at`, `finished_at::Union{Nothing,DateTime}`
 - `result::Union{Nothing,TestrunResult}` — set once finished (partial when cancelled/errored)
 - `error` — the exception when `status == :errored`
+- `failfast::Bool`, `stop_reason::Union{Nothing,Symbol}` — see [`stop_reason`](@ref)
 
 `wait(run)` blocks until finished; `fetch(run)` additionally returns the result (rethrowing
 the error of an errored run). See also [`cancel!`](@ref), [`snapshot`](@ref),
@@ -58,6 +59,11 @@ mutable struct TestRun
     error::Any
     const cts::CancellationTokenSource
     task::Union{Nothing,Task}
+    const failfast::Bool
+    stop_reason::Union{Nothing,Symbol}
+    # The caller's token, when one was passed; `run.cts` is linked to it, so it is what
+    # distinguishes an outside cancellation from a failfast-triggered one.
+    const external_token::Union{Nothing,CancellationToken}
     # private
     const state::RunState
     const events::Channel{RunEvent}
@@ -73,7 +79,8 @@ end
 
 """
     TestSession(; schedule=:duration, on_event=nothing, max_history=50, reactor_pool=nothing,
-                log_min_level=nothing, shutdown_grace_seconds=nothing)
+                log_min_level=nothing, shutdown_grace_seconds=nothing,
+                activation_timeout_seconds=nothing)
 
 A long-lived test session: one `TestItemControllers.TestItemController` with its reactor
 task and a pool of test processes that is reused across runs (processes are revised
@@ -88,6 +95,14 @@ between runs, restarted when the environment changes).
   user code saturates the default thread pool (REPL front ends).
 - `log_min_level` — when given, the controller's own log records (emitted from the reactor
   task) go to a `ConsoleLogger(stderr, log_min_level)`; `nothing` inherits the current logger.
+- `shutdown_grace_seconds` — how long `close` waits for test processes to exit before
+  killing them.
+- `activation_timeout_seconds` — bound how long a test process may spend activating and
+  precompiling its environment; items of an environment that exceeds it are errored
+  instead of hanging. `nothing` (default) does not bound it.
+
+These settings are fixed when the controller is built, so they belong on the session
+rather than on an individual run.
 
 Close with `close(session)`; test processes are shut down then.
 """
@@ -207,6 +222,22 @@ function _finish_unit!(session::TestSession, run_id, item_id, env_id, status, du
     outcome === nothing && return nothing
     _emit_run!(session, run, TestItemFinished(run, item, env.profile, status, outcome.duration, messages, perf,
         reason === nothing ? nothing : string(reason)))
+    # Cancelling the run is what makes the controller report every work unit that has not
+    # started yet as skipped, so `failfast` needs nothing else. The event above is emitted
+    # first so a sink sees the failure before the skip cascade.
+    if run.failfast && (status === :failed || status === :errored)
+        _request_stop!(run, :failfast)
+    end
+    return nothing
+end
+
+# Record why a run is being stopped and cancel it. The first reason wins: a failfast that
+# lands while the user is already cancelling must not overwrite `:user`.
+function _request_stop!(run::TestRun, reason::Symbol)
+    lock(run.session.lock) do
+        run.stop_reason === nothing && (run.stop_reason = reason)
+    end
+    cancel(run.cts)
     return nothing
 end
 
@@ -292,16 +323,21 @@ end
 
 function TestSession(; schedule::Symbol=:duration, on_event=nothing, max_history::Union{Nothing,Int}=50,
                      reactor_pool::Union{Nothing,Symbol}=nothing, log_min_level=nothing,
-                     shutdown_grace_seconds::Union{Nothing,Real}=nothing)
+                     shutdown_grace_seconds::Union{Nothing,Real}=nothing,
+                     activation_timeout_seconds::Union{Nothing,Real}=nothing)
     schedule in (:duration, :contiguous) || throw(ArgumentError("schedule must be :duration or :contiguous"))
     reactor_pool in (nothing, :interactive) || throw(ArgumentError("reactor_pool must be nothing or :interactive"))
+    activation_timeout_seconds === nothing || activation_timeout_seconds > 0 ||
+        throw(ArgumentError("activation_timeout_seconds must be positive"))
 
     session_ref = Ref{TestSession}()
     callbacks = _make_callbacks(session_ref)
 
     make = () -> begin
         kw = shutdown_grace_seconds === nothing ? (;) : (; shutdown_grace_seconds=Float64(shutdown_grace_seconds))
-        controller = TestItemController(callbacks; schedule=schedule, kw...)
+        controller = TestItemController(callbacks; schedule=schedule,
+            activation_timeout_seconds=activation_timeout_seconds === nothing ? nothing : Float64(activation_timeout_seconds),
+            kw...)
         body = () -> try
             run(controller)
         catch err
@@ -369,6 +405,15 @@ Start running `testitems` — a [`Discovery`](@ref) or a vector of [`TestItem`](
   use exceeds this fraction.
 - `fail_on_definition_error::Bool` — when `true` (default) and the discovery has
   definition errors, nothing runs; the errors are reported in the result either way.
+- `failfast::Bool` — stop the run at the first failing or errored item; the rest are
+  reported as skipped and the run still finishes with `status == :completed`, see
+  [`stop_reason`](@ref).
+- `log_level::Symbol` — minimum log level for the *code under test* (`:Debug`, `:Info`
+  (default), `:Warn` or `:Error`). Unrelated to `log_min_level`, which is about this
+  package's own logging.
+- `coverage_source_subdirs` — which folders of a package coverage is reported for
+  (default `("src", "ext")`, so a package's own `test/` is not counted as covered
+  source). An empty collection instruments the whole package folder.
 - `token` — a `CancellationToken` from a caller-owned source; [`cancel!`](@ref) works too.
 - `on_event` — an event sink for this run (see [`subscribe!`](@ref)).
 - `id` — the run id (default: a fresh UUID); must be unique within the session.
@@ -386,6 +431,9 @@ function run_async!(session::TestSession, testitems;
         gc_between_testitems::Union{Nothing,Bool}=nothing,
         memory_threshold::Union{Nothing,Float64}=nothing,
         fail_on_definition_error::Bool=true,
+        failfast::Bool=false,
+        log_level::Symbol=:Info,
+        coverage_source_subdirs=COVERAGE_SOURCE_SUBDIRS,
         token::Union{Nothing,CancellationToken}=nothing,
         on_event=nothing,
         id::String=string(UUIDs.uuid4()),
@@ -396,6 +444,8 @@ function run_async!(session::TestSession, testitems;
     isempty(profiles) && throw(ArgumentError("at least one profile is required"))
     length(unique(p.name for p in profiles)) == length(profiles) ||
         throw(ArgumentError("profile names must be unique"))
+    log_level in (:Debug, :Info, :Warn, :Error) ||
+        throw(ArgumentError("log_level must be :Debug, :Info, :Warn or :Error"))
 
     items = testitems isa Discovery ? testitems.testitems : collect(TestItem, testitems)
     setups = setups === nothing ? (testitems isa Discovery ? testitems.setups : TestItemControllers.TestSetupDetail[]) :
@@ -417,7 +467,8 @@ function run_async!(session::TestSession, testitems;
     items = unique_items
 
     params = (; profiles, max_workers, timeout, julia_cmd, julia_args, julia_num_threads, check_bounds,
-        gc_between_testitems, memory_threshold, fail_on_definition_error)
+        gc_between_testitems, memory_threshold, fail_on_definition_error, failfast, log_level,
+        coverage_source_subdirs)
 
     # ── Translation to controller types ───────────────────────────────
     test_envs = TestItemControllers.TestEnvironment[]
@@ -446,15 +497,27 @@ function run_async!(session::TestSession, testitems;
             env_info[env.id] = EnvInfo(profile.name, pkg.package_name, pkg.package_uri, pkg.project_uri)
             for i in items
                 i.package_uri == pkg.package_uri || continue
-                push!(work_units, TestItemControllers.TestRunItem(i.id, env.id, item_timeout, :Info))
+                push!(work_units, TestItemControllers.TestRunItem(i.id, env.id, item_timeout, log_level))
             end
         end
     end
 
-    # Coverage instrumentation is harvested per test item, but only for files under the
-    # packages being tested — without these roots the test process collects nothing at all.
-    coverage_root_uris = any(p.coverage for p in profiles) ?
-        String[p.package_uri for p in pkgs if !isempty(p.package_uri)] : nothing
+    # Coverage instrumentation is harvested per test item, but only for files under these
+    # roots — without them the test process has nothing to filter against and collects
+    # nothing at all.
+    #
+    # `package_uri` is the folder holding Project.toml, so naming the source folders
+    # explicitly is what keeps a package's own `test/` out of the report. Plain
+    # concatenation, not `joinpath`: these are URIs, and `src`/`ext` need no escaping. A
+    # root naming a folder that does not exist simply matches nothing.
+    coverage_root_uris = if !any(p.coverage for p in profiles)
+        nothing
+    elseif isempty(coverage_source_subdirs)
+        String[p.package_uri for p in pkgs if !isempty(p.package_uri)]
+    else
+        String[string(p.package_uri, '/', sub) for p in pkgs for sub in coverage_source_subdirs
+               if !isempty(p.package_uri)]
+    end
 
     state = RunState(definition_errors, length(work_units))
     merge!(state.items_by_key, items_by_key)
@@ -468,7 +531,7 @@ function run_async!(session::TestSession, testitems;
 
     cts = token === nothing ? CancellationTokenSource() : CancellationTokenSource(token)
     run = TestRun(id, session, items, profiles, params, metadata, Dates.now(), nothing, :running, nothing, nothing,
-        cts, nothing, state, Channel{RunEvent}(Inf), Any[], nothing, Threads.Event())
+        cts, nothing, failfast, nothing, token, state, Channel{RunEvent}(Inf), Any[], nothing, Threads.Event())
     on_event === nothing || push!(run.sinks, on_event)
 
     lock(session.lock) do
@@ -508,8 +571,7 @@ function _execute_run!(session::TestSession, run::TestRun, test_envs, details, w
         lock(session.lock) do
             run.state.coverage = coverage
             run.error = err
-            run.status = err !== nothing ? :errored :
-                is_cancellation_requested(get_token(run.cts)) ? :cancelled : :completed
+            run.status = _final_status(run, err)
             run.result = assemble_result(run.state)
             run.finished_at = Dates.now()
             _prune_history!(session)
@@ -524,6 +586,21 @@ function _execute_run!(session::TestSession, run::TestRun, test_envs, details, w
         notify(run.done)
     end
     return nothing
+end
+
+# A failfast run is cancelled underneath, but it stopped because the tests failed, not
+# because anyone interrupted it — reporting `:cancelled` would make a CLI that maps
+# cancellation to exit 130 mask an ordinary test failure. An outside cancellation still
+# wins: if the caller's own token is cancelled, that is what happened, whatever else did.
+# Called with the session lock held.
+function _final_status(run::TestRun, err)
+    err !== nothing && return :errored
+    is_cancellation_requested(get_token(run.cts)) || return :completed
+    externally_cancelled = run.external_token !== nothing && is_cancellation_requested(run.external_token)
+    (run.stop_reason === :failfast && !externally_cancelled) && return :completed
+    # A caller token cancelled from the outside never went through `_request_stop!`.
+    run.stop_reason = :user
+    return :cancelled
 end
 
 function _prune_history!(session::TestSession)
@@ -563,7 +640,19 @@ Base.istaskdone(run::TestRun) = run.status !== :running
 Request cancellation. Items not yet started are reported as skipped, running processes are
 killed, and the run finishes normally with `status == :cancelled` and a partial result.
 """
-cancel!(run::TestRun) = (cancel(run.cts); nothing)
+cancel!(run::TestRun) = _request_stop!(run, :user)
+
+"""
+    stop_reason(run::TestRun) -> Union{Nothing,Symbol}
+
+Why the run stopped early: `:user` (a [`cancel!`](@ref) or a cancelled caller token),
+`:failfast` (a failing item under `failfast=true`), or `nothing` when it ran to completion.
+
+A failfast run is *cancelled* underneath — items that never started are reported as
+skipped — but its `status` is `:completed`, so a CLI can keep mapping `:cancelled` to
+"the user interrupted this" and a failfast run to an ordinary test failure.
+"""
+stop_reason(run::TestRun) = run.stop_reason
 
 """
     iscancelled(run::TestRun) -> Bool

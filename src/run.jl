@@ -18,13 +18,15 @@ all(p.status == :passed for t in result.testitems for p in t.profiles) || exit(1
 - `filter` — a `TestItem -> Bool` predicate; only matching items run.
 - `store_path`, `active_project` — see [`discover_testitems`](@ref).
 - `on_event` — receives a [`DiscoveryFinished`](@ref) and then every [`RunEvent`](@ref).
-- `schedule` — `:duration` (default) or `:contiguous`.
+- `schedule`, `activation_timeout_seconds`, `shutdown_grace_seconds` — see
+  [`TestSession`](@ref); these configure the session this call runs on.
 - `log_min_level` — minimum level for log records emitted while the run is active
   (default `Logging.Warn`, which hides the controller's info-level lifecycle messages;
   `nothing` leaves the current logger in place).
 - Everything else (`profiles`, `max_workers`, `timeout`, `julia_cmd`, `julia_args`,
   `julia_num_threads`, `check_bounds`, `gc_between_testitems`, `memory_threshold`,
-  `fail_on_definition_error`, `token`, `metadata`) is passed to [`run_async!`](@ref).
+  `fail_on_definition_error`, `failfast`, `log_level`, `coverage_source_subdirs`,
+  `token`, `metadata`) is passed to [`run_async!`](@ref).
 
 Cancellation (through `token`) makes the call return normally with the partial result;
 check `is_cancellation_requested(token)` — or watch for `RunFinished(status = :cancelled)`.
@@ -48,12 +50,16 @@ function _run_tests(path;
         active_project::Union{Nothing,String}=nothing,
         on_event=nothing,
         schedule::Symbol=:duration,
+        activation_timeout_seconds::Union{Nothing,Real}=nothing,
+        shutdown_grace_seconds::Union{Nothing,Real}=nothing,
         kwargs...)
     d = discover_testitems(String(path); filter=filter, store_path=store_path, active_project=active_project)
     on_event === nothing || _safe_call(on_event, DiscoveryFinished(d))
     # The sink is attached to the session rather than the run so that it also sees the
     # process teardown that happens after `RunFinished`.
-    session = TestSession(; schedule=schedule, on_event=on_event)
+    session = TestSession(; schedule=schedule, on_event=on_event,
+        activation_timeout_seconds=activation_timeout_seconds,
+        shutdown_grace_seconds=shutdown_grace_seconds)
     try
         return run!(session, d; kwargs...)
     finally

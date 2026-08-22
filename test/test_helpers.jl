@@ -4,6 +4,8 @@
     const SKIP_PKG = joinpath(TESTDATA, "SkipPkg")
     const SLOW_PKG = joinpath(TESTDATA, "SlowPkg")
     const BROKEN_PKG = joinpath(TESTDATA, "BrokenPkg")
+    const FAILFAST_PKG = joinpath(TESTDATA, "FailfastPkg")
+    const LOGLEVEL_PKG = joinpath(TESTDATA, "LogLevelPkg")
 
     # Every run in this suite pins the Julia that runs the suite, so the test processes
     # never depend on what `julia` resolves to on PATH.

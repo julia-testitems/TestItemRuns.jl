@@ -33,8 +33,13 @@ write_junit_xml("junit.xml", result; root=abspath("path/to/MyPackage"))
 Keyword arguments: `filter` (a `TestItem -> Bool`), `profiles`, `max_workers`, `timeout`
 (seconds per item), `julia_cmd`, `julia_args`, `julia_num_threads`, `check_bounds`,
 `gc_between_testitems`, `memory_threshold`, `schedule`, `fail_on_definition_error`,
-`token` (a `CancellationToken`), `on_event`, `log_min_level`, `store_path`,
-`active_project`.
+`failfast`, `log_level` (for the code under test), `coverage_source_subdirs`,
+`activation_timeout_seconds`, `shutdown_grace_seconds`, `token` (a `CancellationToken`),
+`on_event`, `log_min_level`, `store_path`, `active_project`.
+
+`failfast=true` stops at the first failing item and reports the rest as skipped. The run
+still finishes with `status == :completed` — `stop_reason(run)` is `:failfast` — so a
+front end can keep treating `:cancelled` as "the user interrupted this".
 
 ## Discovery
 
