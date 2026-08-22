@@ -15,6 +15,20 @@ Two tiers:
   processes, [`run_async!`](@ref)/[`run!`](@ref) returning a [`TestRun`](@ref),
   [`cancel!`](@ref), [`snapshot`](@ref), [`run_progress`](@ref), and process management
   ([`list_processes`](@ref), [`terminate_process!`](@ref), [`process_output`](@ref)).
+
+Every session function also has a session-less form that operates on a process-wide
+[`default_session`](@ref), created on first use, so nothing has to be built to run tests
+or manage test processes from a REPL:
+
+```julia
+run_tests(".")             # discovers, runs, and leaves its test processes warm
+list_processes()
+run!(select(discover_testitems(); tags=[:quick]))
+terminate_all_processes!()
+```
+
+Applications should own an explicit `TestSession` and pass it — `run_tests(session, path)`,
+`run!(session, items)` — rather than share the default one.
 """
 module TestItemRuns
 
@@ -51,6 +65,8 @@ export RunEvent, DiscoveryFinished, RunStarted, TestItemStarted, TestItemFinishe
 export TestSession, TestRun, ProcessInfo, run_async!, run!, cancel!, iscancelled, snapshot,
     run_progress, stop_reason, subscribe!, unsubscribe!, list_runs, get_run, list_processes,
     terminate_process!, terminate_all_processes!, process_output
+# The default session behind the session-less methods.
+export default_session, has_default_session, set_default_session!, close_default_session!
 # One-shot.
 export run_tests
 
@@ -66,6 +82,7 @@ include("discovery.jl")
 include("events.jl")
 include("results.jl")
 include("session.jl")
+include("default_session.jl")
 include("run.jl")
 
 end # module TestItemRuns
