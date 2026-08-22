@@ -187,12 +187,13 @@ function select(d::Discovery; ids=nothing, keys=nothing, names=nothing, name_pat
 end
 
 """
-    discover_testitems(path; filter=nothing, store_path=nothing, active_project=nothing) -> Discovery
+    discover_testitems([path]; filter=nothing, store_path=nothing, active_project=nothing) -> Discovery
     discover_testitems(paths::Vector{String}; kwargs...) -> Discovery
     discover_testitems(jw::JuliaWorkspaces.JuliaWorkspace; filter=nothing, roots=String[]) -> Discovery
 
 Discover every `@testitem`, `@testmodule`/`@testsnippet` and definition error under
-`path(s)` (a fresh JuliaWorkspaces workspace is created), or in a caller-owned workspace `jw`.
+`path(s)` (a fresh JuliaWorkspaces workspace is created), or in a caller-owned workspace
+`jw`. `path` defaults to the current working directory.
 
 - `filter` — a `TestItem -> Bool` predicate; only matching items are kept (setups and
   definition errors are always kept).
@@ -204,6 +205,8 @@ The workspace overload does not lock or retain `jw`: callers that mutate their w
 concurrently (file watchers) must hold their own lock around the call. The returned
 [`Discovery`](@ref) is a plain snapshot.
 """
+discover_testitems(; kwargs...) = discover_testitems(pwd(); kwargs...)
+
 function discover_testitems(path::AbstractString; kwargs...)
     return discover_testitems(String[String(path)]; kwargs...)
 end

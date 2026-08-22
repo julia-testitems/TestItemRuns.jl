@@ -98,6 +98,9 @@ end
     try
         redirect_stdout(pipe) do
             run_tests(Fixtures.APP_PKG; filter = i -> i.name == "passing item", Fixtures.RUN_KW...)
+            # The test processes outlive the call and inherited the redirected stdout, so
+            # the pipe only reaches EOF once they are gone.
+            close_default_session!()
         end
     finally
         close(pipe.in)

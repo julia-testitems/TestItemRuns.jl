@@ -25,10 +25,22 @@ write_json("results.json", result)
 write_junit_xml("junit.xml", result; root=abspath("path/to/MyPackage"))
 ```
 
-`run_tests` discovers every test item under the path, runs them on a temporary
-[`TestSession`](#sessions) and returns a `TestrunResult` (the
-`TestItemControllers.Results` type; `write_json`/`read_json`, `write_junit_xml` and
-`write_lcov` are re-exported).
+`run_tests` discovers every test item under the path, runs them and returns a
+`TestrunResult` (the `TestItemControllers.Results` type; `write_json`/`read_json`,
+`write_junit_xml` and `write_lcov` are re-exported).
+
+The run happens on the [default session](#the-default-session), whose test processes stay
+alive afterwards, so a second `run_tests` of the same package reuses them. An application
+that wants to own that lifetime passes its own session, which `run_tests` never closes:
+
+```julia
+session = TestSession(; activation_timeout_seconds=300)
+try
+    result = run_tests(session, "path/to/MyPackage")
+finally
+    close(session)
+end
+```
 
 Keyword arguments: `filter` (a `TestItem -> Bool`), `profiles`, `max_workers`, `timeout`
 (seconds per item), `julia_cmd`, `julia_args`, `julia_num_threads`, `check_bounds`,
@@ -112,6 +124,33 @@ close(session)
 
 `run_async!` accepts the same keyword arguments as `run_tests` (except discovery ones) plus
 `setups`, `id`, `metadata` and `on_event`. `run.params` holds the settings for re-running.
+
+## The default session
+
+Every session function has a session-less form that operates on a process-wide
+`default_session()`, created on first use — so a REPL needs no setup:
+
+```julia
+run_tests(".")                 # runs, and leaves its test processes warm
+list_processes()               # the pool the next run will reuse
+run!(select(discover_testitems(); tags=[:quick]))
+list_runs()
+
+terminate_all_processes!()     # drop the pool, keep the session
+close_default_session!()       # shut it down (process exit does this too)
+```
+
+`run_async!`, `run!`, `list_runs`, `get_run`, `list_processes`, `terminate_process!`,
+`terminate_all_processes!`, `process_output`, `subscribe!` and `unsubscribe!` all have
+one. `set_default_session!(session)` installs a session you configured yourself and hands
+back the previous one without closing it.
+
+Because the session outlives each call, `run_tests` keyword arguments that configure a
+*session* — `schedule`, `reactor_pool`, `log_min_level`, `activation_timeout_seconds`,
+`shutdown_grace_seconds` — rebuild the default session when it was built with something
+else, losing its warm processes. Passing one alongside an explicit session is an error.
+
+Applications should own an explicit `TestSession` rather than share this one.
 
 ## Events
 

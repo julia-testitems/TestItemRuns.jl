@@ -1,7 +1,9 @@
 @testitem "event stream is ordered and complete" setup=[Fixtures] begin
+    close_default_session!()
     events = RunEvent[]
     lk = ReentrantLock()
-    result = run_tests(Fixtures.APP_PKG; Fixtures.RUN_KW..., on_event = ev -> lock(() -> push!(events, ev), lk))
+    sink = ev -> lock(() -> push!(events, ev), lk)
+    result = run_tests(Fixtures.APP_PKG; Fixtures.RUN_KW..., on_event = sink)
 
     @test events[1] isa DiscoveryFinished
     @test length(events[1].discovery) == 2
@@ -41,8 +43,12 @@
     @test all(e.package_name == "AppTestPkg" for e in created)
     @test all(e.profile == "Default" for e in created)
     @test any(e -> e isa ProcessStatusChanged && e.status == "Launching", events)
-    # `run_tests` closes its session, so every process is terminated by the time it returns.
+    # `run_tests` leaves the session it ran on open, so its test processes are still alive
+    # and available to the next run; they are terminated when the session is closed.
     ids = Set(e.id for e in created)
+    @test isempty(Set(e.id for e in events if e isa ProcessTerminated))
+    subscribe!(sink)                # the default session `run_tests` just used
+    close_default_session!()
     @test Set(e.id for e in events if e isa ProcessTerminated) == ids
 end
 
