@@ -214,3 +214,130 @@ end
         close(session)
     end
 end
+
+@testitem "failfast stops the run at the first failure" setup=[Fixtures] begin
+    d = discover_testitems(Fixtures.FAILFAST_PKG)
+    session = TestSession()
+    try
+        # Every item in the fixture fails, so "the first to run fails, the rest are
+        # skipped" holds whichever order the controller picks.
+        run = run_async!(session, d; failfast=true, max_workers=1, Fixtures.RUN_KW...)
+        result = fetch(run)
+        st = [p.status for t in result.testitems for p in t.profiles]
+        @test count(==(:failed), st) == 1
+        @test count(==(:skipped), st) == 2
+        # Cancelled underneath, but reported as a completed run: a failfast stop is a test
+        # failure, not a user interruption.
+        @test run.status == :completed
+        @test stop_reason(run) === :failfast
+        @test iscancelled(run)
+    finally
+        close(session)
+    end
+end
+
+@testitem "failfast off runs every item" setup=[Fixtures] begin
+    d = discover_testitems(Fixtures.FAILFAST_PKG)
+    session = TestSession()
+    try
+        run = run_async!(session, d; max_workers=1, Fixtures.RUN_KW...)
+        result = fetch(run)
+        @test all(p.status == :failed for t in result.testitems for p in t.profiles)
+        @test length(result.testitems) == 3
+        @test run.status == :completed
+        @test stop_reason(run) === nothing
+        @test !iscancelled(run)
+    finally
+        close(session)
+    end
+end
+
+@testitem "failfast leaves a caller token alone, a cancelled one wins" setup=[Fixtures] begin
+    using TestItemRuns.CancellationTokens: CancellationTokenSource, get_token, cancel,
+        is_cancellation_requested
+
+    session = TestSession()
+    try
+        # Failfast cancels the run, which is linked to the caller's token — it must not
+        # cancel the caller's source, which the caller may be using for other runs too.
+        cts = CancellationTokenSource()
+        run = run_async!(session, discover_testitems(Fixtures.FAILFAST_PKG);
+            failfast=true, max_workers=1, token=get_token(cts), Fixtures.RUN_KW...)
+        fetch(run)
+        @test stop_reason(run) === :failfast
+        @test run.status == :completed
+        @test !is_cancellation_requested(get_token(cts))
+
+        # An outside cancellation wins over failfast: this run stopped because the caller
+        # said so, so it must report :cancelled and exit codes stay meaningful.
+        cts2 = CancellationTokenSource()
+        cancel(cts2)
+        run2 = run_async!(session, discover_testitems(Fixtures.FAILFAST_PKG);
+            failfast=true, token=get_token(cts2), Fixtures.RUN_KW...)
+        fetch(run2)
+        @test run2.status == :cancelled
+        @test stop_reason(run2) === :user
+    finally
+        close(session)
+    end
+end
+
+@testitem "log_level reaches the code under test" setup=[Fixtures] begin
+    d = discover_testitems(Fixtures.LOGLEVEL_PKG)
+    session = TestSession()
+    try
+        output = (level) -> begin
+            chunks = String[]
+            run!(session, d; log_level=level, on_event = ev -> ev isa OutputAppended && push!(chunks, ev.output),
+                Fixtures.RUN_KW...)
+            join(chunks)
+        end
+        @test occursin("LogLevelPkg computing a sum", output(:Debug))
+        @test !occursin("LogLevelPkg computing a sum", output(:Info))
+    finally
+        close(session)
+    end
+end
+
+@testitem "coverage is reported for src, not test" setup=[Fixtures] begin
+    d = discover_testitems(Fixtures.APP_PKG)
+    session = TestSession()
+    try
+        result = run!(session, d; profiles=[RunProfile("cov"; coverage=true)], Fixtures.RUN_KW...)
+        @test result.coverage !== nothing
+        uris = [f.uri for f in result.coverage]
+        @test any(occursin("/src/", u) for u in uris)
+        # The regression this guards: a package's own test files counted as covered source.
+        @test !any(occursin("/test/", u) for u in uris)
+    finally
+        close(session)
+    end
+end
+
+@testitem "run params round-trip the new options" setup=[Fixtures] begin
+    d = discover_testitems(Fixtures.APP_PKG)
+    session = TestSession()
+    try
+        run = run_async!(session, d; failfast=false, log_level=:Warn,
+            coverage_source_subdirs=("src",), Fixtures.RUN_KW...)
+        fetch(run)
+        @test run.params.failfast == false
+        @test run.params.log_level == :Warn
+        @test run.params.coverage_source_subdirs == ("src",)
+        # Every kwarg in `params` must be accepted back by `run_async!`.
+        fetch(run_async!(session, d; run.params...))
+    finally
+        close(session)
+    end
+end
+
+@testitem "log_level and activation_timeout_seconds are validated" setup=[Fixtures] begin
+    d = discover_testitems(Fixtures.APP_PKG)
+    session = TestSession()
+    try
+        @test_throws ArgumentError run_async!(session, d; log_level=:Verbose)
+    finally
+        close(session)
+    end
+    @test_throws ArgumentError TestSession(; activation_timeout_seconds=0)
+end

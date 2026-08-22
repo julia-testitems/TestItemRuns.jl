@@ -49,12 +49,17 @@ export RunEvent, DiscoveryFinished, RunStarted, TestItemStarted, TestItemFinishe
     RunFinished
 # Session and runs.
 export TestSession, TestRun, ProcessInfo, run_async!, run!, cancel!, iscancelled, snapshot,
-    run_progress, subscribe!, unsubscribe!, list_runs, get_run, list_processes,
+    run_progress, stop_reason, subscribe!, unsubscribe!, list_runs, get_run, list_processes,
     terminate_process!, terminate_all_processes!, process_output
 # One-shot.
 export run_tests
 
 const DEFAULT_MAX_WORKERS = min(Sys.CPU_THREADS, 8)
+
+# The folders of a package whose coverage a report is about. Everything else under the
+# package — `test`, `docs`, loose scripts — is instrumented too, but reporting it would
+# count a package's own test files as covered source.
+const COVERAGE_SOURCE_SUBDIRS = ("src", "ext")
 
 include("profiles.jl")
 include("discovery.jl")
