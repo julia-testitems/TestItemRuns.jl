@@ -214,7 +214,13 @@ end
 function discover_testitems(paths::Vector{String}; filter=nothing, store_path::Union{Nothing,String}=nothing,
                             active_project::Union{Nothing,String}=nothing)
     roots = String[abspath(p) for p in paths]
-    jw = JuliaWorkspaces.workspace_from_folders(roots; store_path=store_path)
+    # `scope=:testitems` makes the folder walk itself honour `JuliaTestItems.toml`,
+    # so a directory its globs exclude is never read from disc. Without it a
+    # repository holding a large tree of test data under an excluded folder pays
+    # to list and read all of it before discovery throws it away again. Only the
+    # test-item config has a say here: a wider `include` in `JuliaFormat.toml` or
+    # `JuliaLint.toml` must not drag extra directories into a test run.
+    jw = JuliaWorkspaces.workspace_from_folders(roots; store_path=store_path, scope=:testitems)
     if active_project !== nothing
         proj = abspath(active_project)
         proj_dir = isdir(proj) ? proj : dirname(proj)
