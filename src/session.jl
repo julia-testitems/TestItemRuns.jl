@@ -222,9 +222,16 @@ function _finish_unit!(session::TestSession, run_id, item_id, env_id, status, du
     outcome === nothing && return nothing
     _emit_run!(session, run, TestItemFinished(run, item, env.profile, status, outcome.duration, messages, perf,
         reason === nothing ? nothing : string(reason)))
-    # Cancelling the run is what makes the controller report every work unit that has not
-    # started yet as skipped, so `failfast` needs nothing else. The event above is emitted
-    # first so a sink sees the failure before the skip cascade.
+    # The controller is what actually stops a failfast run: it is told `failfast=true` up
+    # front and acts on the failure inside the same reactor step that reported it, which is
+    # the only place the decision can be made in time — a worker is handed its test items as
+    # a batch, so a cancellation requested from here is merely appended to the reactor queue
+    # and can land behind a result the worker has already sent for the next item.
+    #
+    # This still records the reason and cancels `run.cts`, which keeps `stop_reason` and
+    # `iscancelled` meaningful and remains a backstop if the run outlives the controller's
+    # own stop. The event above is emitted first so a sink sees the failure before the skip
+    # cascade.
     if run.failfast && (status === :failed || status === :errored)
         _request_stop!(run, :failfast)
     end
@@ -562,7 +569,8 @@ function _execute_run!(session::TestSession, run::TestRun, test_envs, details, w
                     max_workers, get_token(run.cts);
                     coverage_root_uris=coverage_root_uris,
                     gc_between_testitems=gc_between_testitems,
-                    memory_threshold=memory_threshold)
+                    memory_threshold=memory_threshold,
+                    failfast=run.failfast)
             end
         catch e
             err = e
