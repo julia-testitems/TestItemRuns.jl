@@ -14,7 +14,7 @@ const _ATEXIT_REGISTERED = Ref(false)
 # lifecycle chatter, matching `run_tests`.
 const _DEFAULT_SESSION_DEFAULTS = (; schedule = :duration, reactor_pool = :interactive,
     log_min_level = Logging.Warn, activation_timeout_seconds = nothing,
-    shutdown_grace_seconds = nothing)
+    shutdown_grace_seconds = nothing, run_stall_seconds = nothing)
 
 function _close_default_session_quietly()
     try

@@ -80,7 +80,7 @@ end
 """
     TestSession(; schedule=:duration, on_event=nothing, max_history=50, reactor_pool=nothing,
                 log_min_level=nothing, shutdown_grace_seconds=nothing,
-                activation_timeout_seconds=nothing)
+                activation_timeout_seconds=nothing, run_stall_seconds=nothing)
 
 A long-lived test session: one `TestItemControllers.TestItemController` with its reactor
 task and a pool of test processes that is reused across runs (processes are revised
@@ -100,6 +100,9 @@ between runs, restarted when the environment changes).
 - `activation_timeout_seconds` — bound how long a test process may spend activating and
   precompiling its environment; items of an environment that exceeds it are errored
   instead of hanging. `nothing` (default) does not bound it.
+- `run_stall_seconds` — how long a run may go with no worker busy on it and no message
+  about it before the controller warns, and at twice that errors its remaining items.
+  `nothing` (default) keeps the controller's own default; `0` turns the check off.
 
 These settings are fixed when the controller is built, so they belong on the session
 rather than on an individual run.
@@ -331,17 +334,25 @@ end
 function TestSession(; schedule::Symbol=:duration, on_event=nothing, max_history::Union{Nothing,Int}=50,
                      reactor_pool::Union{Nothing,Symbol}=nothing, log_min_level=nothing,
                      shutdown_grace_seconds::Union{Nothing,Real}=nothing,
-                     activation_timeout_seconds::Union{Nothing,Real}=nothing)
+                     activation_timeout_seconds::Union{Nothing,Real}=nothing,
+                     run_stall_seconds::Union{Nothing,Real}=nothing)
     schedule in (:duration, :contiguous) || throw(ArgumentError("schedule must be :duration or :contiguous"))
     reactor_pool in (nothing, :interactive) || throw(ArgumentError("reactor_pool must be nothing or :interactive"))
     activation_timeout_seconds === nothing || activation_timeout_seconds > 0 ||
         throw(ArgumentError("activation_timeout_seconds must be positive"))
+    run_stall_seconds === nothing || run_stall_seconds >= 0 ||
+        throw(ArgumentError("run_stall_seconds must be non-negative (0 disables the check)"))
 
     session_ref = Ref{TestSession}()
     callbacks = _make_callbacks(session_ref)
 
     make = () -> begin
         kw = shutdown_grace_seconds === nothing ? (;) : (; shutdown_grace_seconds=Float64(shutdown_grace_seconds))
+        # Tri-state: unset leaves the controller's own default in place, and `0` is how a
+        # caller says "off" without having to know what that default was.
+        if run_stall_seconds !== nothing
+            kw = (; kw..., run_stall_seconds = run_stall_seconds == 0 ? nothing : Float64(run_stall_seconds))
+        end
         controller = TestItemController(callbacks; schedule=schedule,
             activation_timeout_seconds=activation_timeout_seconds === nothing ? nothing : Float64(activation_timeout_seconds),
             kw...)

@@ -3,7 +3,7 @@
 # Settings that are fixed when a session's controller is built, so they cannot be applied
 # to a session that already exists.
 const _SESSION_LEVEL_KWARGS = (:schedule, :reactor_pool, :log_min_level,
-    :activation_timeout_seconds, :shutdown_grace_seconds)
+    :activation_timeout_seconds, :shutdown_grace_seconds, :run_stall_seconds)
 
 """
     run_tests(path; kwargs...) -> TestrunResult
@@ -41,8 +41,8 @@ end
 - `on_event` — receives a [`DiscoveryFinished`](@ref) and then every [`RunEvent`](@ref).
   It is attached to the session for the duration of the call, so on a shared session it
   can also observe process events caused by concurrent runs.
-- `schedule`, `reactor_pool`, `activation_timeout_seconds`, `shutdown_grace_seconds` —
-  see [`TestSession`](@ref). These are fixed when a session is built, so passing one
+- `schedule`, `reactor_pool`, `activation_timeout_seconds`, `shutdown_grace_seconds`,
+  `run_stall_seconds` — see [`TestSession`](@ref). These are fixed when a session is built, so passing one
   *with* a session is an error, and passing one *without* rebuilds the default session
   when it does not already match (its warm test processes are lost).
 - `log_min_level` — minimum level for log records emitted while the run is active
@@ -90,13 +90,14 @@ function _run_tests(session::Union{Nothing,TestSession}, path;
         log_min_level=_DEFAULT_SESSION_DEFAULTS.log_min_level,
         activation_timeout_seconds::Union{Nothing,Real}=nothing,
         shutdown_grace_seconds::Union{Nothing,Real}=nothing,
+        run_stall_seconds::Union{Nothing,Real}=nothing,
         kwargs...)
     d = discover_testitems(String(path); filter=filter, store_path=store_path, active_project=active_project)
     on_event === nothing || _safe_call(on_event, DiscoveryFinished(d))
 
     if session === nothing
         session = _default_session_for((; schedule, reactor_pool, log_min_level,
-            activation_timeout_seconds, shutdown_grace_seconds))
+            activation_timeout_seconds, shutdown_grace_seconds, run_stall_seconds))
     end
 
     # The sink is attached to the session rather than the run so that it also sees process
