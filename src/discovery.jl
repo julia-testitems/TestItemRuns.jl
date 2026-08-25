@@ -130,22 +130,46 @@ function Base.show(io::IO, d::Discovery)
 end
 
 """
-    packages(d::Discovery)
+    package_envs(d::Discovery)
 
-The distinct packages the test items belong to, as
+The distinct test environments the items need, as
 `(package_name, package_uri, project_uri, env_content_hash)` named tuples.
+
+One entry per distinct combination, not per package: a package whose items resolve to
+different projects yields more than one. That happens whenever a `Project.toml` +
+`Manifest.toml` pair sits below the package folder — say `test/special/` — and `dev`s the
+package, which is how different groups of test items get their versions from different
+manifests. Grouping by `package_uri` alone would give all of them whichever project the
+first discovered item happened to select.
 """
-function packages(d::Union{Discovery,AbstractVector{TestItem}})
+function package_envs(d::Union{Discovery,AbstractVector{TestItem}})
     items = d isa Discovery ? d.testitems : d
-    seen = Dict{String,NamedTuple}()
-    order = String[]
+    Key = Tuple{String,Union{Nothing,String},Union{Nothing,String}}
+    seen = Dict{Key,NamedTuple}()
+    order = Key[]
     for i in items
-        haskey(seen, i.package_uri) && continue
-        push!(order, i.package_uri)
-        seen[i.package_uri] = (package_name=i.package_name, package_uri=i.package_uri,
+        k = (i.package_uri, i.project_uri, i.env_content_hash)
+        haskey(seen, k) && continue
+        push!(order, k)
+        seen[k] = (package_name=i.package_name, package_uri=i.package_uri,
             project_uri=i.project_uri, env_content_hash=i.env_content_hash)
     end
-    return [seen[u] for u in order]
+    return [seen[k] for k in order]
+end
+
+"""
+    packages(d::Discovery)
+
+Deprecated alias for [`package_envs`](@ref).
+
+The old name described what the function was meant to return rather than what it has to:
+grouping by package alone gave every test item of a package the environment of whichever
+item was discovered first, which is wrong as soon as two of them resolve to different
+projects.
+"""
+function packages(d::Union{Discovery,AbstractVector{TestItem}})
+    Base.depwarn("`packages` is deprecated, use `package_envs` instead.", :packages)
+    return package_envs(d)
 end
 
 _matches(pattern::Regex, s) = occursin(pattern, s)

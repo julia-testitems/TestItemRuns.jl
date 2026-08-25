@@ -1,0 +1,12 @@
+# A hand-written manifest, not a generated one. It exists to make `test/special` a
+# *project* in the sense discovery uses (a folder with both a project file and a manifest)
+# and to `dev` the package back, which is what makes discovery keep it instead of
+# discarding it. `julia_version` is deliberately absent: pinning one would make every Julia
+# but that one warn about a manifest resolved elsewhere.
+
+manifest_format = "2.0"
+
+[[deps.NestedProjectPkg]]
+path = "../.."
+uuid = "3c4f2a17-8e51-4a63-9d70-000000000077"
+version = "0.1.0"

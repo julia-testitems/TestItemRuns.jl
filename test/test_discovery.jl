@@ -26,7 +26,7 @@
     @test :name in propertynames(failing)
     @test_throws ArgumentError failing.nonexistent
 
-    pkgs = packages(d)
+    pkgs = package_envs(d)
     @test length(pkgs) == 1
     @test pkgs[1].package_name == "AppTestPkg"
     @test sprint(show, d) == "Discovery(2 test items in 1 files, 0 setups, 0 definition errors)"
@@ -97,5 +97,30 @@ end
     # A vector of paths works too.
     d3 = discover_testitems([Fixtures.APP_PKG, Fixtures.SKIP_PKG])
     @test length(d3) == 5
-    @test length(packages(d3)) == 2
+    @test length(package_envs(d3)) == 2
+end
+
+@testitem "package_envs splits a package across nested projects" setup=[Fixtures] begin
+    d = discover_testitems(Fixtures.NESTED_PKG)
+    @test length(d) == 2
+
+    by_name = Dict(i.name => i for i in d)
+    base, special = by_name["base item"], by_name["special item"]
+
+    # Same package, different project: nothing above `test/base_tests.jl` is a project (the
+    # package folder has no manifest), while `test/special/` has both a project file and a
+    # manifest that `dev`s the package back.
+    @test base.package_uri == special.package_uri
+    @test base.project_uri === nothing
+    @test special.project_uri !== nothing
+    @test endswith(special.project_uri, "special")
+    @test base.env_content_hash != special.env_content_hash
+
+    # Grouping on `package_uri` alone collapsed these two into one, and every item ran
+    # against whichever project happened to be discovered first.
+    envs = package_envs(d)
+    @test length(envs) == 2
+    @test length(unique(e.package_uri for e in envs)) == 1
+    @test Set(e.project_uri for e in envs) == Set([nothing, special.project_uri])
+    @test all(e.package_name == "NestedProjectPkg" for e in envs)
 end

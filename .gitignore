@@ -1,1 +1,5 @@
 Manifest.toml
+
+# ...except the fixture manifests, which are part of the test data: `test/special` is only
+# a *project* to discovery because it has one.
+!testdata/**/Manifest.toml
