@@ -346,10 +346,15 @@ end
     session = TestSession()
     try
         d = discover_testitems(Fixtures.NESTED_PKG)
-        r = run!(session, d; Fixtures.RUN_KW...)
 
-        @test Fixtures.status_of(r, "base item") == :passed
-        @test Fixtures.status_of(r, "special item") == :passed
+        # One run per item, one worker each. The two items need different environments,
+        # and activating both at once would have them race for the package registry —
+        # a pre-existing hazard on Windows that has nothing to do with what is under
+        # test here. Sequential runs also make the process pool below unambiguous.
+        for name in ("base item", "special item")
+            r = run!(session, select(d; names=[name]); max_workers=1, Fixtures.RUN_KW...)
+            @test Fixtures.status_of(r, name) == :passed
+        end
 
         # One process per environment, not per package: the item under `test/special/`
         # needs that project's manifest, the one under `test/` needs the package folder.
