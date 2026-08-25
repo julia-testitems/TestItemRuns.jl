@@ -135,6 +135,14 @@ end
 
 _or(a, b) = a === nothing ? b : a
 
+# Which test items belong to an entry of `package_envs`. Matching on `package_uri` alone
+# would sweep in the items of the same package that resolved to a *different* project —
+# the nested `test/special/Project.toml` shape — and run them against the wrong manifest.
+_same_env(item, env) =
+    item.package_uri == env.package_uri &&
+    item.project_uri == env.project_uri &&
+    item.env_content_hash == env.env_content_hash
+
 # `invokelatest`: sinks are routinely defined after the drain task started (REPL sessions,
 # `subscribe!` mid-run) and would otherwise be too new for the task's world age.
 function _safe_call(f, ev)
@@ -494,7 +502,7 @@ function run_async!(session::TestSession, testitems;
     env_info = Dict{String,EnvInfo}()
     work_units = TestItemControllers.TestRunItem[]
     item_timeout = timeout === nothing ? nothing : Float64(timeout)
-    pkgs = packages(items)
+    pkgs = package_envs(items)
     for profile in profiles
         env_vars = _child_env(profile)
         mode = profile.coverage ? "Coverage" : "Normal"
@@ -515,7 +523,7 @@ function run_async!(session::TestSession, testitems;
             push!(test_envs, env)
             env_info[env.id] = EnvInfo(profile.name, pkg.package_name, pkg.package_uri, pkg.project_uri)
             for i in items
-                i.package_uri == pkg.package_uri || continue
+                _same_env(i, pkg) || continue
                 push!(work_units, TestItemControllers.TestRunItem(i.id, env.id, item_timeout, log_level))
             end
         end
@@ -532,10 +540,10 @@ function run_async!(session::TestSession, testitems;
     coverage_root_uris = if !any(p.coverage for p in profiles)
         nothing
     elseif isempty(coverage_source_subdirs)
-        String[p.package_uri for p in pkgs if !isempty(p.package_uri)]
+        unique(String[p.package_uri for p in pkgs if !isempty(p.package_uri)])
     else
-        String[string(p.package_uri, '/', sub) for p in pkgs for sub in coverage_source_subdirs
-               if !isempty(p.package_uri)]
+        unique(String[string(p.package_uri, '/', sub) for p in pkgs for sub in coverage_source_subdirs
+                      if !isempty(p.package_uri)])
     end
 
     state = RunState(definition_errors, length(work_units))

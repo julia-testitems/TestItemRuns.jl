@@ -341,3 +341,25 @@ end
     end
     @test_throws ArgumentError TestSession(; activation_timeout_seconds=0)
 end
+
+@testitem "items of one package run in their own projects" setup=[Fixtures] begin
+    session = TestSession()
+    try
+        d = discover_testitems(Fixtures.NESTED_PKG)
+        r = run!(session, d; Fixtures.RUN_KW...)
+
+        @test Fixtures.status_of(r, "base item") == :passed
+        @test Fixtures.status_of(r, "special item") == :passed
+
+        # One process per environment, not per package: the item under `test/special/`
+        # needs that project's manifest, the one under `test/` needs the package folder.
+        procs = list_processes(session)
+        @test all(p.package_name == "NestedProjectPkg" for p in procs)
+        projects = Set(p.project_uri for p in procs)
+        @test length(projects) == 2
+        @test nothing in projects
+        @test any(p !== nothing && endswith(p, "special") for p in projects)
+    finally
+        close(session)
+    end
+end

@@ -56,7 +56,7 @@ export write_json, read_json, write_junit_xml, write_lcov
 
 # Profiles and discovery.
 export RunProfile, TestItem, DefinitionError, Discovery, discover_testitems, select,
-    filename, packages
+    filename, package_envs, packages
 # Events.
 export RunEvent, DiscoveryFinished, RunStarted, TestItemStarted, TestItemFinished,
     OutputAppended, ProcessCreated, ProcessStatusChanged, ProcessTerminated, ProcessOutput,

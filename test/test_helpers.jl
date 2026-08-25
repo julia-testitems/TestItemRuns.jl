@@ -6,6 +6,10 @@
     const BROKEN_PKG = joinpath(TESTDATA, "BrokenPkg")
     const FAILFAST_PKG = joinpath(TESTDATA, "FailfastPkg")
     const LOGLEVEL_PKG = joinpath(TESTDATA, "LogLevelPkg")
+    # One test item under `test/` and one under `test/special/`, which is a project in its
+    # own right (Project + Manifest) and `dev`s the package back — so the two items resolve
+    # to different environments.
+    const NESTED_PKG = joinpath(TESTDATA, "NestedProjectPkg")
 
     # Every run in this suite pins the Julia that runs the suite, so the test processes
     # never depend on what `julia` resolves to on PATH.
