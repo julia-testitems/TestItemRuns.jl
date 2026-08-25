@@ -100,9 +100,10 @@ between runs, restarted when the environment changes).
 - `activation_timeout_seconds` — bound how long a test process may spend activating and
   precompiling its environment; items of an environment that exceeds it are errored
   instead of hanging. `nothing` (default) does not bound it.
-- `run_stall_seconds` — how long a run may go with no worker busy on it and no message
-  about it before the controller warns, and at twice that errors its remaining items.
-  `nothing` (default) keeps the controller's own default; `0` turns the check off.
+- `run_stall_seconds` — opt-in: fail a run's remaining items after this many seconds with
+  no worker busy on it and no message about it. `nothing` (default) keeps the controller's
+  own default — which never fails a run for being idle, it only warns; `0` forces the
+  failing check off even if a layer above turned it on.
 
 These settings are fixed when the controller is built, so they belong on the session
 rather than on an individual run.
