@@ -38,7 +38,7 @@ using TestItemControllers: TestItemController, ControllerCallbacks, execute_test
     shutdown, wait_for_shutdown, terminate_test_process
 using TestItemControllers.Results
 using TestItemControllers.Results: write_json, read_json
-using TestItemControllers: write_junit_xml, write_lcov
+using TestItemControllers: write_junit_xml, write_lcov, write_cobertura
 
 """
 The `CancellationTokens` module used throughout (the one vendored by TestItemControllers,
@@ -52,7 +52,7 @@ using .CancellationTokens: CancellationTokenSource, CancellationToken, get_token
 export TestrunResult, TestrunResultTestitem, TestrunResultTestitemProfile,
     TestrunResultMessage, TestrunResultStackFrame, TestrunResultDefinitionError,
     TestrunResultPerfStats, TestrunResultFileCoverage
-export write_json, read_json, write_junit_xml, write_lcov
+export write_json, read_json, write_junit_xml, write_lcov, write_cobertura
 
 # Profiles and discovery.
 export RunProfile, TestItem, DefinitionError, Discovery, discover_testitems, select,
