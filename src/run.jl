@@ -12,7 +12,7 @@ const _SESSION_LEVEL_KWARGS = (:schedule, :reactor_pool, :log_min_level,
 Discover every `@testitem` under `path` (a package or workspace folder), run them all and
 return the aggregated [`TestrunResult`](@ref). Nothing is printed; observe progress via
 `on_event`, and write reports with [`write_json`](@ref), [`write_junit_xml`](@ref) or
-[`write_lcov`](@ref).
+[`write_lcov`](@ref) / [`write_cobertura`](@ref).
 
 ```julia
 using TestItemRuns
