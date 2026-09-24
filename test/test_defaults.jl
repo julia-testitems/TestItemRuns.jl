@@ -1,5 +1,5 @@
 @testitem "default_max_workers" begin
-    GiB = 2^30
+    GiB = Int64(2)^30  # 7 GiB and up overflow a 32-bit Int
     # Capped by memory: 3 CPUs, 7 GiB (GitHub's macOS arm64 runners).
     @test default_max_workers(; total_memory=7GiB, cpu_threads=3) == 2
     # Capped by CPU threads.

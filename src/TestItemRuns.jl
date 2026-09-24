@@ -75,7 +75,7 @@ export default_max_workers
 """
 Memory budgeted per test process by [`default_max_workers`](@ref), in bytes (3 GiB).
 """
-const MEMORY_PER_WORKER = 3 * 2^30
+const MEMORY_PER_WORKER = Int64(3) * 2^30  # Int64: 3 GiB overflows a 32-bit Int
 
 """
     default_max_workers(; total_memory=Sys.total_memory(), cpu_threads=Sys.CPU_THREADS) -> Int
