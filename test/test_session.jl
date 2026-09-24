@@ -27,7 +27,7 @@
         @test get_run(session, runs[1].id) === runs[1]
         @test get_run(session, first(runs[1].id, 8)) === runs[1]
         @test get_run(session, "no-such-run") === nothing
-        @test runs[1].params.max_workers == TestItemRuns.DEFAULT_MAX_WORKERS
+        @test runs[1].params.max_workers == default_max_workers()
         @test runs[1].params.timeout == 300
         @test occursin("completed", sprint(show, runs[1]))
         @test occursin("2 runs", sprint(show, session))

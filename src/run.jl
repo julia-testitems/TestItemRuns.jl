@@ -52,7 +52,9 @@ end
 - Everything else (`profiles`, `max_workers`, `timeout`, `julia_cmd`, `julia_args`,
   `julia_num_threads`, `check_bounds`, `gc_between_testitems`, `memory_threshold`,
   `fail_on_definition_error`, `failfast`, `log_level`, `coverage_source_subdirs`,
-  `token`, `metadata`) is passed to [`run_async!`](@ref).
+  `token`, `metadata`) is passed to [`run_async!`](@ref). In particular `max_workers`
+  defaults to [`default_max_workers()`](@ref default_max_workers), evaluated at call time,
+  and `gc_between_testitems = nothing` (the default) uses TestItemControllers' default.
 
 Cancellation (through `token`) makes the call return normally with the partial result;
 check `is_cancellation_requested(token)` — or watch for `RunFinished(status = :cancelled)`.

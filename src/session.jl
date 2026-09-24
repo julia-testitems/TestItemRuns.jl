@@ -413,13 +413,15 @@ Start running `testitems` — a [`Discovery`](@ref) or a vector of [`TestItem`](
 - `setups` — the `TestSetupDetail`s the items may reference; defaults to the discovery's.
 - `profiles::Vector{RunProfile}` — every item runs once per profile (default: one
   `RunProfile("Default")`).
-- `max_workers::Int` — maximum number of parallel test processes for this run.
+- `max_workers::Int` — maximum number of parallel test processes for this run (default:
+  [`default_max_workers()`](@ref default_max_workers), computed at call time from the CPU
+  threads and total memory of the machine).
 - `timeout` — per-test-item timeout in seconds, or `nothing`.
 - `julia_cmd`, `julia_args`, `julia_num_threads`, `check_bounds` — how to launch test
   processes (per-profile fields override these). `julia_num_threads` is the `--threads`
   value (`"4"`, `"auto"`, `"4,1"`); `check_bounds` is `nothing`/`"auto"` or `"yes"`.
-- `gc_between_testitems::Union{Nothing,Bool}` — `nothing` (default) turns it on when more
-  than one test process is used.
+- `gc_between_testitems::Union{Nothing,Bool}` — run a full GC after every test item;
+  `nothing` (default) uses TestItemControllers' default.
 - `memory_threshold::Union{Nothing,Float64}` — recycle a test process once system memory
   use exceeds this fraction.
 - `fail_on_definition_error::Bool` — when `true` (default) and the discovery has
@@ -441,7 +443,7 @@ Start running `testitems` — a [`Discovery`](@ref) or a vector of [`TestItem`](
 function run_async!(session::TestSession, testitems;
         setups=nothing,
         profiles::Vector{RunProfile}=[RunProfile()],
-        max_workers::Int=DEFAULT_MAX_WORKERS,
+        max_workers::Int=default_max_workers(),
         timeout=nothing,
         julia_cmd::String="julia",
         julia_args::Vector{String}=String[],
