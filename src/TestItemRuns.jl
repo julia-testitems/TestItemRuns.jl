@@ -69,7 +69,46 @@ export TestSession, TestRun, ProcessInfo, run_async!, run!, cancel!, iscancelled
 export default_session, has_default_session, set_default_session!, close_default_session!
 # One-shot.
 export run_tests
+# Defaults.
+export default_max_workers
 
+"""
+Memory budgeted per test process by [`default_max_workers`](@ref), in bytes (3 GiB).
+"""
+const MEMORY_PER_WORKER = Int64(3) * 2^30  # Int64: 3 GiB overflows a 32-bit Int
+
+"""
+    default_max_workers(; total_memory=Sys.total_memory(), cpu_threads=Sys.CPU_THREADS) -> Int
+
+The number of parallel test processes used when `max_workers` is not given: the smallest
+of
+
+- `cpu_threads`, the number of CPU threads,
+- 8, and
+- one process per 3 GiB of `total_memory`,
+
+but at least 1.
+
+Memory matters because each test process running a typical package's test suite, together
+with the Julia processes it spawns, needs roughly 2–3 GB on Julia 1.12 and later, and
+running out of memory (swapping or memory-compressor thrashing) is far slower than running
+fewer processes. On a 3-CPU, 7 GiB machine such as GitHub's macOS arm64 runners this gives
+2 rather than 3.
+
+`Sys.total_memory()` respects cgroup memory limits, so containers get a value based on
+the memory they may actually use. The value is computed when called, not when the package
+is precompiled; the keyword arguments exist for testing.
+"""
+function default_max_workers(; total_memory::Integer=Sys.total_memory(),
+        cpu_threads::Integer=Sys.CPU_THREADS)
+    return Int(max(1, min(cpu_threads, 8, fld(total_memory, MEMORY_PER_WORKER))))
+end
+
+"""
+Superseded by [`default_max_workers`](@ref) and no longer used as the default for
+`max_workers`. Kept for backward compatibility (TestItemApp 1.3 references it); note that
+its value is fixed when the package is precompiled and ignores available memory.
+"""
 const DEFAULT_MAX_WORKERS = min(Sys.CPU_THREADS, 8)
 
 # The folders of a package whose coverage a report is about. Everything else under the
